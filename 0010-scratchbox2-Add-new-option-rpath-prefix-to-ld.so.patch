@@ -14,14 +14,14 @@ the correct libraries under 'target_root').
 Note that this patch causes no harm in the default case, i.e.
 when the dynamic linker is started "automatically" by the kernel.
 ---
- elf/dl-load.c              | 63 ++++++++++++++++++++++++++++++--------
+ elf/dl-load.c              | 71 +++++++++++++++++++++++++++++++-------
  elf/dl-support.c           |  3 ++
- elf/rtld.c                 | 11 +++++++
+ elf/rtld.c                 | 11 ++++++
  sysdeps/generic/ldsodefs.h |  6 ++++
- 4 files changed, 71 insertions(+), 12 deletions(-)
+ 4 files changed, 79 insertions(+), 12 deletions(-)
 
 diff --git a/elf/dl-load.c b/elf/dl-load.c
-index c092ed3e674650f3b93dfca992bbdc775f6d1b8e..3b00898028f8b65af56b1034a50c01f9012e1cde 100644
+index c092ed3e..46f2cf88 100644
 --- a/elf/dl-load.c
 +++ b/elf/dl-load.c
 @@ -443,7 +443,8 @@ static size_t max_dirnamelen;
@@ -29,12 +29,27 @@ index c092ed3e674650f3b93dfca992bbdc775f6d1b8e..3b00898028f8b65af56b1034a50c01f9
  static struct r_search_path_elem **
  fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
 -	      const char *what, const char *where, struct link_map *l)
-+	      const char *what, const char *where, struct link_map *l, 
++	      const char *what, const char *where, struct link_map *l,
 +	      const char *rpath_prefix)
  {
    char *cp;
    size_t nelems = 0;
-@@ -483,9 +484,24 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
+@@ -454,6 +455,14 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
+       char *to_free = NULL;
+       size_t len = 0;
+ 
++      /* If the rpath starts with $ORIGIN, rpath_prefix should not be
++         applied.  */
++      if (__glibc_unlikely (*cp == '$'))
++	{
++	  if ((len = is_dst (cp + 1, "ORIGIN")) != 0)
++	    rpath_prefix = NULL;
++	}
++
+       /* `strsep' can pass an empty string.  */
+       if (*cp != '\0')
+ 	{
+@@ -483,9 +492,24 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
  	}
  
        /* See if this directory is already known.  */
@@ -62,7 +77,7 @@ index c092ed3e674650f3b93dfca992bbdc775f6d1b8e..3b00898028f8b65af56b1034a50c01f9
  
        if (dirp != NULL)
  	{
-@@ -503,22 +519,44 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
+@@ -503,22 +527,44 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
  	  size_t cnt;
  	  enum r_dir_status init_val;
  	  size_t where_len = where ? strlen (where) + 1 : 0;
@@ -112,7 +127,7 @@ index c092ed3e674650f3b93dfca992bbdc775f6d1b8e..3b00898028f8b65af56b1034a50c01f9
  
  	  /* We have to make sure all the relative directories are
  	     never ignored.  The current directory might change and
-@@ -529,7 +567,8 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
+@@ -529,7 +575,8 @@ fillin_rpath (char *rpath, struct r_search_path_elem **result, const char *sep,
  
  	  dirp->what = what;
  	  if (__glibc_likely (where != NULL))
@@ -122,7 +137,7 @@ index c092ed3e674650f3b93dfca992bbdc775f6d1b8e..3b00898028f8b65af56b1034a50c01f9
  				  + (ncapstr * sizeof (enum r_dir_status)),
  				  where, where_len);
  	  else
-@@ -628,7 +667,7 @@ decompose_rpath (struct r_search_path_struct *sps,
+@@ -628,7 +675,7 @@ decompose_rpath (struct r_search_path_struct *sps,
        _dl_signal_error (ENOMEM, NULL, NULL, errstring);
      }
  
@@ -131,7 +146,7 @@ index c092ed3e674650f3b93dfca992bbdc775f6d1b8e..3b00898028f8b65af56b1034a50c01f9
  
    /* Free the copied RPATH string.  `fillin_rpath' make own copies if
       necessary.  */
-@@ -813,7 +852,7 @@ _dl_init_paths (const char *llp)
+@@ -813,7 +860,7 @@ _dl_init_paths (const char *llp)
  	}
  
        (void) fillin_rpath (llp_tmp, env_path_list.dirs, ":;",
@@ -141,7 +156,7 @@ index c092ed3e674650f3b93dfca992bbdc775f6d1b8e..3b00898028f8b65af56b1034a50c01f9
        if (env_path_list.dirs[0] == NULL)
  	{
 diff --git a/elf/dl-support.c b/elf/dl-support.c
-index a9cf3366633f2aa8ea4c16b8eb2ecd2015174e57..02894dbf2aaea4bdb31223968f1248c37fe54de2 100644
+index a9cf3366..02894dbf 100644
 --- a/elf/dl-support.c
 +++ b/elf/dl-support.c
 @@ -61,6 +61,9 @@ const char *_dl_inhibit_rpath;
@@ -155,7 +170,7 @@ index a9cf3366633f2aa8ea4c16b8eb2ecd2015174e57..02894dbf2aaea4bdb31223968f1248c3
  struct link_map *_dl_profile_map;
  
 diff --git a/elf/rtld.c b/elf/rtld.c
-index c2022d5bf7cafba0fe3fa3cfaf7cf6470ab23320..415188c233792eea6484ce709f4bfc128775323b 100644
+index c2022d5b..415188c2 100644
 --- a/elf/rtld.c
 +++ b/elf/rtld.c
 @@ -1188,6 +1188,15 @@ dl_main (const ElfW(Phdr) *phdr,
@@ -184,7 +199,7 @@ index c2022d5bf7cafba0fe3fa3cfaf7cf6470ab23320..415188c233792eea6484ce709f4bfc12
  			in LIST\n\
    --argv0 STRING        use STRING as argv[0]\n\
 diff --git a/sysdeps/generic/ldsodefs.h b/sysdeps/generic/ldsodefs.h
-index ddf23e32ad1952aab5b1ca955d98f90f42e346ec..f946848d25930056a8135d96381e80ca0eb02bf7 100644
+index ddf23e32..f946848d 100644
 --- a/sysdeps/generic/ldsodefs.h
 +++ b/sysdeps/generic/ldsodefs.h
 @@ -614,6 +614,12 @@ struct rtld_global_ro
